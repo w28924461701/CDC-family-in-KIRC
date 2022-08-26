@@ -1,0 +1,35 @@
+
+setwd('D:\\CDCA8')
+library(ggcorrplot)
+library(limma)
+library(dplyr)
+r1<-read.table('symbol.KIRC.txt',header = T,check.names = F)
+t<-read.csv('clipboard',sep='\t')
+r2<-filter(r1,Ensembl_ID%in%t$id)
+
+rt=as.matrix(r2)
+rownames(rt)=rt[,1]
+exp=rt[,2:ncol(rt)]
+dimnames=list(rownames(exp), colnames(exp))
+data=matrix(as.numeric(as.matrix(exp)), nrow=nrow(exp), dimnames=dimnames)
+data=avereps(data)
+rm(exp,dimnames,rt,expFile)
+
+#正常样品提取和肿瘤样本
+group=sapply(strsplit(colnames(data),"\\-"), "[", 4)
+group=sapply(strsplit(group,""), "[", 1)
+group=gsub("2", "1", group)
+dataT=data[,group==0]
+rm(t,data,r2,group)
+
+corr <- round(cor(t(dataT)), 1)
+head(corr[, 1:6])
+p.mat <- cor_pmat(t(dataT))
+head(p.mat[, 1:4])
+ggcorrplot(corr,method = "circle", hc.order = TRUE,
+           type = "lower", p.mat = p.mat, lab = TRUE)
+
+library(corrplot)
+corrplot.mixed(corr,lower="number",upper="pie", 
+               tl.col="green",lower.col="skyblue",number.cex=1) 
+corrplot(corr, type="lower",title="type=upper")
