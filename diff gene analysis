@@ -1,0 +1,61 @@
+setwd('D:\\CDC20')
+library(limma)
+expFile="CDCfamily.csv"          #表达数据文件
+
+logFCfilter=1                 #logFC过滤条件
+fdrFilter=0.05                #fdr过滤条件
+
+rt=read.csv(expFile, header=T,check.names = F)
+rt=as.matrix(rt)
+rownames(rt)=rt[,1]
+exp=rt[,2:ncol(rt)]
+dimnames=list(rownames(exp), colnames(exp))
+data=matrix(as.numeric(as.matrix(exp)), nrow=nrow(exp), dimnames=dimnames)
+data=avereps(data)
+rm(exp,dimnames,rt,expFile)
+
+#正常样品提取和肿瘤样本
+group=sapply(strsplit(colnames(data),"\\-"), "[", 4)
+group=sapply(strsplit(group,""), "[", 1)
+group=gsub("2", "1", group)
+dataT=data[,group==0]
+dataN=data[,group==1]
+dataT=t(dataT)
+rownames(dataT)=gsub("(.*?)\\-(.*?)\\-(.*?)\\-(.*?)\\-.*", "\\1\\-\\2\\-\\3", rownames(dataT))
+dataT=avereps(dataT)
+dataT=t(dataT)
+
+dataN=t(dataN)
+rownames(dataN)=gsub("(.*?)\\-(.*?)\\-(.*?)\\-(.*?)\\-.*", "\\1\\-\\2\\-\\3", rownames(dataN))
+dataN=avereps(dataN)
+dataN=t(dataN)
+
+data=cbind(dataN,dataT)
+data=data[rowMeans(data)>1,]
+conNum=ncol(dataN)
+treatNum=ncol(dataT)
+Type=c(rep(1,conNum), rep(2,treatNum))
+
+#差异分析
+outTab=data.frame()
+for(i in row.names(data)){
+  rt=data.frame(expression=data[i,], Type=Type)
+  wilcoxTest=wilcox.test(expression ~ Type, data=rt)
+  pvalue=wilcoxTest$p.value
+  conGeneMeans=mean(data[i,1:conNum])
+  treatGeneMeans=mean(data[i,(conNum+1):ncol(data)])
+  logFC=log2(treatGeneMeans)-log2(conGeneMeans)
+  conMed=median(data[i,1:conNum])
+  treatMed=median(data[i,(conNum+1):ncol(data)])
+  diffMed=treatMed-conMed
+  if( ((logFC>0) & (diffMed>0)) | ((logFC<0) & (diffMed<0)) ){  
+    outTab=rbind(outTab,cbind(gene=i,lowMean=conGeneMeans,highMean=treatGeneMeans,logFC=logFC,pValue=pvalue))
+  }
+}
+pValue=outTab[,"pValue"]
+fdr=p.adjust(as.numeric(as.vector(pValue)), method="fdr")
+outTab=cbind(outTab, fdr=fdr)
+
+#输出差异表格
+outDiff=outTab[( abs(as.numeric(as.vector(outTab$logFC)))>logFCfilter & as.numeric(as.vector(outTab$fdr))<fdrFilter),]
+write.table(outDiff, file="riskDiff.txt", sep="\t", row.names=F, quote=F)
