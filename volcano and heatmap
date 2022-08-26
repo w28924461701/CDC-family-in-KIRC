@@ -1,0 +1,37 @@
+library(EnhancedVolcano)
+for (i in c(2:6)){
+  outTab[,i] <- as.numeric( outTab[,i])
+}
+
+
+write.csv(outTab,'outtab.csv')
+
+
+EnhancedVolcano(outTab,
+                lab = outTab$gene,
+                x = 'logFC',
+                y = 'pValue', 
+               # title = ' cell division cycle-protein family ',
+                # pCutoff = 10e-32,
+                #  FCcutoff = 2,
+)
+
+# load package
+library("gplots")
+data1<-as.data.frame(data)
+# make matrix
+mat <-as.matrix(data1)
+
+# heatmap with the defaults parameters
+heatmap.2(x=mat,Colv=FALSE, 
+          dendrogram="row",
+          symbreaks = TRUE,
+          scale="row",
+          col="bluered",
+          trace="none",
+          ColSideColors=c(rep('green',conNum), rep('orange',treatNum)),
+         # labRow=TRUE,
+          cexRow = 1.0, cexCol = 0.1, 
+          main="my heatmap",
+         # ylab="Genes",
+          )
