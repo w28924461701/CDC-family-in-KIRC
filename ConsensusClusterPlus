@@ -1,0 +1,59 @@
+setwd('D:\\CDCA8')
+library(dplyr)
+library(CancerSubtypes)
+View(dataT)
+rt<-data[1:5,1:5]
+rt<-data[r$V1,]
+View(dt)
+rm(data)
+dt<-t(rt)
+data.checkDistribution(dt) #Analysis the raw data by check the data distribution.
+
+#result1=data.normalization(dt,type="feature_Median",log2=FALSE)
+#result1<-t(result1)
+#result1=data.normalization(dt,type="feature_zscore",log2=FALSE)
+###The top 1000 most variance features will be selected.
+#data1=FSbyVar(dt, cut.type="topk",value=1000)
+###The features with (variance>0.5) are selected.
+#data2=FSbyVar(dt, cut.type="cutoff",value=0.5)
+#data1=FSbyMAD(dt, cut.type="topk",value=1000)
+#data2=FSbyMAD(dt, cut.type="cutoff",value=0.5)
+#dt1=data.imputation(dt,fun="microarray")
+#data1=FSbyPCA(dt1, PC_percent=0.9,scale = TRUE)
+
+
+library(ConsensusClusterPlus)
+
+title <-'D:\\CDCA8\\kirc'
+
+seed=11111
+d =rt #  samples in columns,  genes in rows
+d = sweep(d,1, apply(d,1,median,na.rm=T))
+maxK = 6 # maximum number of clusters to try
+results = ConsensusClusterPlus(d,maxK=maxK,reps=50,pItem=0.8,pFeature=1,title=title,
+                               innerLinkage="average",seed=seed,plot="pdf")# Note that we implement consensus clustering with innerLinkage="complete". 
+# 
+
+result=ExecuteCC(clusterNum=3,d=d,maxK=10, innerLinkage="average",title="kirc-1")
+
+#We advise against using innerLinkage="average" which is the default value in this package as average linkage is not robust to outliers.
+
+result$originalResult[[4]]$consensusClass->group
+group1<-as.data.frame(group)
+View(group1)
+View(dt)
+common<-intersect(rownames(group1),rownames(dt))
+group2<-as.data.frame(group1[common,],row.names = common)
+dt1<-dt[common,]
+merg<-cbind(dt1,group2)
+
+library(reshape)
+longdata <- melt(merg,id=c("group"))
+longdata1<-filter(longdata,variable%in%c('CDCA8','CDCA7','CDCA5','CDCA4','CDCA3','CDCA2','CDCA4P3','CDC20'))
+longdata1$group<-as.factor(as.character(longdata1$group))
+ggplot(longdata1, aes(x=variable, y=value, fill=group)) +
+      geom_boxplot()->p1
+ggplot(longdata2, aes(x=variable, y=value, fill=group)) +
+    geom_boxplot()->p2
+library(cowplot)
+plot_grid(p1, p2, ncol = 1)
