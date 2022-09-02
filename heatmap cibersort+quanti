@@ -1,0 +1,134 @@
+library(MCPcounter)
+library(devtools)
+
+library(stringr)
+library(data.table)
+library(pheatmap)
+
+setwd('D:\\CDCA8')
+library(dplyr)
+library(CancerSubtypes)
+
+data1<-t(data)
+data1<-as.data.frame(data1)
+data1<-select(data1,starts_with("CDC"))
+data<-data1
+rm(data1)
+data<-t(data)
+d =data #  samples in columns,  genes in rows
+d = sweep(d,1, apply(d,1,median,na.rm=T))
+result=ExecuteCC(clusterNum=3,d=d,maxK=10, innerLinkage="average",title="kirc-1")
+result$originalResult[[4]]$consensusClass->group
+group1<-as.data.frame(group)
+
+eset_KIRC<-XenaGenerate(subset = XenaCohorts =="GDC TCGA Kidney Clear Cell Carcinoma (KIRC)") %>% 
+  XenaFilter(filterDatasets    = "TCGA-KIRC.htseq_counts.tsv") %>% 
+  XenaQuery() %>%
+  XenaDownload() %>% 
+  XenaPrepare()
+eset_KIRC[1:5,1:5]
+eset_KIRC$Ensembl_ID<-substring(eset_KIRC$Ensembl_ID, 1, 15)
+eset_KIRC<-column_to_rownames(eset_KIRC, var = "Ensembl_ID")
+eset_KIRC<-(2^eset_KIRC)-1
+eset_KIRC<-count2tpm(countMat = eset_KIRC, idType = "Ensembl", org="hsa")
+eset_KIRC[1:5,1:5]
+
+gr=sapply(strsplit(colnames(eset_KIRC),"\\-"),"[",4)
+gr=sapply(strsplit(gr,""),"[",1)
+gr=gsub("2","1",gr)
+eset_KIRC=eset_KIRC[,gr==0]
+
+sig_tme<-calculate_sig_score(pdata           = NULL,
+                             eset            = eset_KIRC,
+                             signature       = signature_tme,
+                             method          = "pca",
+                             mini_gene_count = 2)
+sig_res<-calculate_sig_score(pdata           = NULL,
+                             eset            = eset_KIRC,
+                             signature       = signature_collection,
+                             method          = "integration",
+                             mini_gene_count = 2)
+sig_hallmark<-calculate_sig_score(pdata           = NULL,
+                                  eset            = eset_KIRC,
+                                  signature       = hallmark,
+                                  method          = "ssgsea",
+                                  mini_gene_count = 2)
+
+cibersort<-deconvo_tme(eset = eset_KIRC, method = "cibersort",
+                       arrays = FALSE, perm = 200 )
+head(cibersort)
+res<-cell_bar_plot(input = cibersort[1:50,], title = "CIBERSORT Cell Fraction")
+epic<-deconvo_tme(eset = eset_KIRC, method = "epic", arrays = FALSE)
+mcp<-deconvo_tme(eset = eset_KIRC, method = "mcpcounter")
+xcell<-deconvo_tme(eset = eset_KIRC, method = "xcell",arrays = FALSE)
+estimate<-deconvo_tme(eset = eset_KIRC, method = "estimate")
+timer<-deconvo_tme(eset = eset_KIRC, method = "timer",
+                   group_list = rep("kirc",dim(eset_KIRC)[2]))
+quantiseq<-deconvo_tme(eset = eset_KIRC, tumor = TRUE, arrays = FALSE, scale_mrna = TRUE, method = "quantiseq")
+ips<-deconvo_tme(eset = eset_stad, method = "ips", plot= FALSE)
+tme_combine<-cibersort %>% 
+  inner_join(.,mcp,by       = "ID") %>% 
+  inner_join(.,xcell,by     = "ID") %>%
+  inner_join(.,epic,by      = "ID") %>% 
+  inner_join(.,estimate,by  = "ID") %>% 
+  inner_join(.,timer,by     = "ID") %>% 
+  inner_join(.,quantiseq,by = "ID") %>% 
+  inner_join(.,ips,by       = "ID")
+res1<-cell_bar_plot(input = quantiseq[1:50, ], title = "quantiseq Cell Fraction")
+ciber<-as.data.frame(cibersort)
+rownames(ciber)<-ciber$ID
+ciber$ID<-NULL
+ciber<-ciber[rownames(group1),]
+ciber<-t(ciber)
+quanti<-t(quanti)
+sampleType<-group1$gp1
+sigVec=c()
+for(i in row.names(ciber)){
+  test=aov(ciber[i,] ~ sampleType)
+  pvalue=summary(test)[[1]][5][1,]
+  Sig=ifelse(pvalue<0.001,"***",ifelse(pvalue<0.01,"**",ifelse(pvalue<0.05,"*","")))
+  sigVec=c(sigVec, paste0(i, Sig))
+}
+
+row.names(ciber)=sigVec
+
+sigVec1=c()
+for(i in row.names(quanti)){
+  test=aov(quanti[i,] ~ sampleType)
+  pvalue=summary(test)[[1]][5][1,]
+  Sig=ifelse(pvalue<0.001,"***",ifelse(pvalue<0.01,"**",ifelse(pvalue<0.05,"*","")))
+  sigVec1=c(sigVec1, paste0(i, Sig))
+}
+
+row.names(quanti)=sigVec1
+
+#热图可视化
+
+Type=sampleType
+Type=factor(Type, levels=c("c1", "c2","c3","c4"))
+names(Type)=colnames(ciber)
+Type=as.data.frame(Type)
+pdf("heatciber and quanti.pdf", width=8, height=4.6)
+pheatmap(ciber,
+         annotation_col =Type,
+         color = colorRampPalette(c(rep("blue",5), "white", rep("red",5)))(100),
+         cluster_cols =F,
+         cluster_rows =T,
+         scale="row",
+         show_colnames=F,
+         show_rownames=T,
+         fontsize=7,
+         fontsize_row=7,
+         fontsize_col=7)
+pheatmap(quanti,
+         annotation_col =Type,
+         color = colorRampPalette(c(rep("blue",5), "white", rep("red",5)))(100),
+         cluster_cols =F,
+         cluster_rows =T,
+         scale="row",
+         show_colnames=F,
+         show_rownames=T,
+         fontsize=7,
+         fontsize_row=7,
+         fontsize_col=7)
+dev.off()
