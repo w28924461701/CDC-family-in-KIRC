@@ -1,0 +1,56 @@
+ setwd('D:\\CDCA8')
+ library(survival)
+ library(survminer)
+ library(dplyr)
+ rt<-t(data)
+ rt<-as.data.frame(rt)
+ rt<-select(rt,starts_with('CDC'))
+ data1<-data
+ data<-rt
+for(i in 1:ncol(data)){
+  data[,i]<-ifelse(data[,i]>median(data[,i]),"high","low")
+ }
+ for(i in 1:ncol(data)){
+  data[,i]<-as.factor(data[,i])
+ }
+ 
+ cli<-read.csv('clipboard',sep='\t')
+ rownames(cli1)<-cli1$Samples
+ cli1$Samples<-NULL
+ common<-intersect(rownames(cli1),rownames(data))
+ cli1<-cli1[common,]
+ data<-data[common,]
+ 
+ 
+ cp=list()
+ OS.time<-cli$OS.month/12
+ OS<-cli$Event
+ for(i in colnames(data)){
+ diff=survdiff(Surv(OS.time, OS) ~ data[,i], data =data)
+ pValue=1-pchisq(diff$chisq,df=1)
+ if(pValue<0.05){
+  cp[i]<-paste0(pValue,'-i')
+   }
+ }
+ unlist(cp)->cp
+ cp<-data.frame(cp)
+ cp<-rownames(cp)
+ rt<-data
+ for (i in cp){
+   splots <- list()
+   km_fit <- survfit(Surv(OS.time,OS)~rt[,i], data=rt)
+   splots[[1]]<-ggsurvplot(km_fit,
+                           xlab = "Time_years",
+                           ylab="Overall Survival",##根据需要调整
+                           pval = T,
+                           conf.int= F,
+                           risk.table = T,
+                          legend.title = i,
+                           surv.median.line = "hv",# 中位生存
+                           palette="lancet")
+   ## width=6.95,height=6.5
+   res<-arrange_ggsurvplots(splots, print = F,
+                            ncol = 1, nrow = 1, risk.table.height = 0.25)
+   ggsave(paste(i,"All_surv.pdf",sep = "_"), res,width=7,height = 6)
+ }
+ 
