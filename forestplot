@@ -1,0 +1,143 @@
+data<-t(data)
+data[1:5,1:5]
+library(dplyr)
+data<-as.data.frame(data)
+data<-select(data,starts_with('CDC'))
+cli<-read.csv('clipboard',sep='\t')
+rownames(cli)<-paste0(cli$Samples,'-01A')
+cli$Samples<-NULL
+common<-intersect(rownames(cli),rownames(data))
+data<-data[common,]
+data1<-data
+cli<-cli[common,]
+for(i in colnames(data)){
+  
+  data[,i]<-ifelse(data[,i]>median(data[,i]),"high","low") 
+           
+  data[,i]<-as.factor(data[,i])
+}
+
+cli$OS.month<-cli$OS.month/12
+fix(cli)
+cli$Event<-ifelse(cli$Event=='Dead',1,0)
+cli<-filter(cli,OS.year>0)
+data<-data[rownames(cli),]
+data<-cbind(cli[,1:2],data)
+
+
+rt<-data
+library(survival)
+library(forestplot)
+#对肿瘤类型进行循环
+outTab=data.frame()
+for(i in colnames(rt[,-c(1,2)])){
+  cox=coxph(Surv(OS.year, Event) ~ rt[,i], data = rt)
+  coxSummary = summary(cox)
+  coxP=coxSummary$coefficients[,"Pr(>|z|)"]
+  outTab=rbind(outTab,
+               cbind(cancer=i,
+                     HR=coxSummary$conf.int[,"exp(coef)"],
+                     HR.95L=coxSummary$conf.int[,"lower .95"],
+                     HR.95H=coxSummary$conf.int[,"upper .95"],
+                     pvalue=coxP) )
+}
+write.table(outTab,file="cox.result.txt",sep="\t",row.names=F,quote=F)    #输出基因和p值表格文件
+
+
+############绘制森林图函数############
+bioForest=function(coxFile=null,forestFile=null,forestCol=null){
+#读取输入文件
+rt=read.table("cox.result.txt",header=T,sep="\t",row.names=1,check.names=F)
+data=(rt)
+HR=data[,1:3]
+hr=sprintf("%.3f",HR[,"HR"])
+hrLow=sprintf("%.3f",HR[,"HR.95L"])
+hrHigh=sprintf("%.3f",HR[,"HR.95H"])
+pVal=data[,"pvalue"]
+pVal=ifelse(pVal<0.001, "<0.001", sprintf("%.3f", pVal))
+#	clrs <- fpColors(box=forestCol,line="darkblue", summary="royalblue")      #定义颜色
+clrs <- fpColors(box="red",line="darkblue", summary="royalblue")    
+tabletext <- 
+  list(c(NA, rownames(HR)),
+       append("pvalue", pVal),
+       append("Hazard ratio",paste0(hr,"(",hrLow,"-",hrHigh,")")) )   #定义图片文字
+pdf(file="forest-1.pdf",width = 9,height =10,onefile = FALSE)
+forestplot(tabletext, 
+           rbind(rep(NA, 3), HR),
+           col=clrs,
+           graphwidth=unit(70, "mm"),
+           xlog=T,
+           lwd.ci=7,
+           lineheight =unit(0.38, "cm"),
+           boxsize=0.6,
+           xlab="Hazard ratio",
+           txt_gp=fpTxtGp(ticks=gpar(cex=1.1),xlab=gpar(cex = 1.25))
+)
+dev.off()
+}
+############绘制森林图函数############
+
+
+
+library("glmnet")
+library("survival")
+data<-data1
+data<-data[rownames(cli),]
+unic<-c('CDC25B','CDC42','CDC6','CDC45','CDCA2','CDC73','CDC20','CDC25C','CDC7',
+        'CDC26','CDC42P6','CDC14B','CDC42BG','CDC16','CDC14A','CDC37P2','CDC40',
+        'CDC42BPB','CDCA4','CDCA5','CDC42SE2','CDCA8','CDCA7','CDC37P1',
+        'CDC42BPA','CDC37L1','CDC25A','CDC42P5','CDCA3','CDCA4P3','CDC23')
+data<-data[,colnames(data)%in%unic]
+
+x=as.matrix(data)
+
+y=data.matrix(Surv(cli$OS.year, cli$Event))
+
+fit <- glmnet(x, y, family = "cox", maxit = 1000)
+pdf("lambda.pdf")
+plot(fit, xvar = "lambda", label = TRUE)
+dev.off()
+
+cvfit <- cv.glmnet(x, y, family="cox", maxit = 1000)
+pdf("cvfit.pdf")
+plot(cvfit)
+abline(v=log(c(cvfit$lambda.min,cvfit$lambda.1se)),lty="dashed")
+dev.off()
+
+coef <- coef(fit, s = cvfit$lambda.min)
+index <- which(coef != 0)
+actCoef <- coef[index]
+lassoGene=row.names(coef)[index]
+# lassoGene=c("OS.year","Event",lassoGene)
+lassoSigExp=data[,lassoGene]
+#lassoSigExp=cbind(id=row.names(lassoSigExp),lassoSigExp)
+write.table(lassoSigExp,file="lassoSigExp.txt",sep="\t",row.names=T,quote=F)
+
+coxm <- coxph(Surv(cli$OS.year,cli$Event)~CDCA2+CDC7+CDC42P6+CDC14B+CDC16+CDCA7+CDCA3,data=lassoSigExp)
+mul_cox1 <- summary(coxm)
+colnames(mul_cox1$conf.int)
+multi1<-as.data.frame(round(mul_cox1$conf.int[, c(1, 3, 4)], 2))
+library(tableone)  
+multi2<-ShowRegTable(coxm, 
+                     exp=TRUE, 
+                     digits=2, 
+                     pDigits =3,
+                     printToggle = TRUE, 
+                     quote=FALSE, 
+                     ciFun=confint)
+#一-4.将两次提取结果合并成表；取名result
+result <-cbind(multi1,multi2)
+result<-tibble::rownames_to_column(result, var = "Characteristics");result
+rownames(result)<-result$Characteristics
+result$Characteristics<-NULL
+
+data_edit(result)->result
+result[1,]<-c('exp(coef)','lower.95','upper.95','Harzard ratio','pvalue')
+result1<-result[-1,]
+fig3_1<-forestplot(result[1,], 
+                   mean=result[,1],   
+                   lower=result[,3],  
+                   upper=result[,4], 
+                   zero=1,        
+                   boxsize=0.5,      
+                   graph.pos=2)     
